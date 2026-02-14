@@ -1,0 +1,18 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: insurance-catalog-service
+  r2dbc:
+    url: r2dbc:h2:mem:///insurancedb
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+logging:
+  level:
+    com.challenge.insurance_catalog_service: DEBUG

@@ -1,0 +1,13 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: insurance-catalog-service
+
+logging:
+  level:
+    com.challenge.quote_calculator_service: DEBUG
+
+insurance-catalog-service:
+  url: http://localhost:8080
