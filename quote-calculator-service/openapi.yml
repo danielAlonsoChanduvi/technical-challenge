@@ -1,0 +1,188 @@
+openapi: 3.0.3
+info:
+  title: Quote Calculator Service
+  description: |
+    Reactive REST API that calculates personalized insurance quotes for a prospect.
+
+    The service does not store plans. It calls Insurance Catalog Service
+    `GET /api/insurance-catalog/active` and streams matching quotes as
+    **Server-Sent Events** (`text/event-stream`). Each SSE `data:` payload is a JSON object.
+
+    Eligibility (applied to each active plan):
+    - Age is inclusive: `minAge <= age <= maxAge`
+    - Annual income must be **strictly greater than 30000**
+    - If `isSmoker` is true, `price = basePrice * 1.2`; otherwise `price = basePrice`
+
+    If no plan matches, the API returns HTTP **404** with JSON
+    `QuoteErrorResponse` (`No hay seguros para su perfil`).
+    If the catalog is unavailable, the call can fail with HTTP **500**.
+  version: 0.0.1-SNAPSHOT
+  contact:
+    name: Challenge Team
+
+servers:
+  - url: http://localhost:8081
+    description: Local development
+
+tags:
+  - name: Quote Calculator
+    description: Create insurance quotes for a prospect
+
+paths:
+  /api/quote-calculator:
+    post:
+      tags:
+        - Quote Calculator
+      operationId: createQuoteForUser
+      summary: Create insurance quotes for a prospect
+      description: |
+        Accepts a JSON prospect and streams zero-or-more quotes as SSE.
+
+        Response field names belong to `UserProspectResponse`:
+        `fullname`, `planName`, `price`.
+
+        `dni` and `occupation` are accepted on the request but are not used
+        for eligibility or the quote payload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserProspectRequest"
+            examples:
+              eligibleNonSmoker:
+                summary: Eligible non-smoker (default catalog)
+                value:
+                  dni: "71195649"
+                  fullname: Daniel Chanduvi
+                  occupation: Backend Developer
+                  annualIncome: 50000.00
+                  isSmoker: false
+                  age: 29
+              eligibleSmoker:
+                summary: Eligible smoker (20 percent surcharge)
+                value:
+                  dni: "12345678A"
+                  fullname: Juan García López
+                  occupation: Ingeniero
+                  annualIncome: 45000.00
+                  isSmoker: true
+                  age: 35
+              insufficientIncome:
+                summary: Income is not strictly greater than 30000
+                value:
+                  dni: "11111111C"
+                  fullname: Carlos López Martínez
+                  occupation: Estudiante
+                  annualIncome: 15000.00
+                  isSmoker: false
+                  age: 28
+      responses:
+        "200":
+          description: SSE stream of matching quotes
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/UserProspectResponse"
+              examples:
+                nonSmokerQuotes:
+                  summary: Quotes for an eligible non-smoker against default seed data
+                  value: |
+                    data: {"fullname":"Daniel Chanduvi","planName":"Plan Básico","price":50.0}
+
+                    data: {"fullname":"Daniel Chanduvi","planName":"Plan Familia","price":200.0}
+                smokerQuotes:
+                  summary: Quotes for an eligible smoker (base price times 1.2)
+                  value: |
+                    data: {"fullname":"Juan García López","planName":"Plan Básico","price":60.0}
+
+                    data: {"fullname":"Juan García López","planName":"Plan Familia","price":240.0}
+        "404":
+          description: |
+            No eligible plan for the prospect. Also returned when the catalog
+            has no active plans (proxy maps catalog 404 to an empty stream).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteErrorResponse"
+              example:
+                message: No hay seguros para su perfil
+                timestamp: "2026-02-14T10:30:00"
+        "405":
+          description: Method not allowed. Only POST is supported.
+        "500":
+          description: |
+            Catalog call failed (for example catalog down or timeout after 10 seconds).
+            This path is not handled by `GlobalExceptionHandler`.
+
+components:
+  schemas:
+    UserProspectRequest:
+      type: object
+      description: Prospect payload consumed by POST /api/quote-calculator
+      properties:
+        dni:
+          type: string
+          description: National identity document. Accepted but not used in quoting.
+          example: "71195649"
+        fullname:
+          type: string
+          description: Full name copied into each quote event
+          example: Daniel Chanduvi
+        occupation:
+          type: string
+          description: Occupation. Accepted but not used in quoting.
+          example: Backend Developer
+        annualIncome:
+          type: number
+          format: double
+          description: Annual income. Must be greater than 30000 to receive quotes.
+          example: 50000.00
+        isSmoker:
+          type: boolean
+          description: When true, each matching plan price is multiplied by 1.2
+          example: false
+        age:
+          type: integer
+          format: int32
+          description: Age in years. Must fall within a plan minAge and maxAge inclusive.
+          example: 29
+
+    UserProspectResponse:
+      type: object
+      description: Quote DTO streamed as SSE on success
+      required:
+        - fullname
+        - planName
+        - price
+      properties:
+        fullname:
+          type: string
+          description: Prospect full name from the request
+          example: Daniel Chanduvi
+        planName:
+          type: string
+          description: Name of the matching active catalog plan
+          example: Plan Básico
+        price:
+          type: number
+          format: double
+          description: Final premium after smoker surcharge when applicable
+          example: 50.0
+
+    QuoteErrorResponse:
+      type: object
+      description: JSON body returned by GlobalExceptionHandler for PlanNotFoudForUser
+      required:
+        - message
+        - timestamp
+      properties:
+        message:
+          type: string
+          description: Error description
+          example: No hay seguros para su perfil
+        timestamp:
+          type: string
+          format: date-time
+          description: Instant when the error was created
+          example: "2026-02-14T10:30:00"

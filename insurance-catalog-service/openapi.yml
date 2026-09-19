@@ -1,0 +1,177 @@
+openapi: 3.0.3
+info:
+  title: Insurance Catalog Service
+  description: |
+    Reactive REST API that streams insurance plans from an in-memory catalog.
+
+    Successful reads use **Server-Sent Events** (`text/event-stream`).
+    Each SSE `data:` payload is a JSON object.
+
+    - `GET /api/insurance-catalog` returns **all** plans mapped to a catalog DTO.
+    - `GET /api/insurance-catalog/active` returns **active** plans as domain entities.
+      If no active plan exists, the API returns HTTP 404 with a JSON error body
+      (`there are not plan active`).
+  version: 0.0.1-SNAPSHOT
+  contact:
+    name: Challenge Team
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Insurance Catalog
+    description: Query insurance plans
+
+paths:
+  /api/insurance-catalog:
+    get:
+      tags:
+        - Insurance Catalog
+      operationId: getAllPlans
+      summary: Stream all insurance plans
+      description: |
+        Returns every plan in the catalog (active and inactive) as an SSE stream.
+
+        Payload field names belong to `InsurancePlanResponse`:
+        `namePlan`, `pricePlan`, `scopeAge` (`minAge-maxAge`), `active`.
+
+        An empty catalog still returns HTTP 200 with zero SSE events.
+      responses:
+        "200":
+          description: SSE stream of catalog DTOs
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/InsurancePlanResponse"
+              examples:
+                seededCatalog:
+                  summary: One SSE event from the default seed data
+                  value: |
+                    data: {"namePlan":"Plan Básico","pricePlan":50.0,"scopeAge":"18-65","active":true}
+        "405":
+          description: Method not allowed. Only GET is supported.
+
+  /api/insurance-catalog/active:
+    get:
+      tags:
+        - Insurance Catalog
+      operationId: getActivePlans
+      summary: Stream active insurance plans
+      description: |
+        Returns only plans with `active = true` as an SSE stream.
+
+        Payload field names belong to the `InsurancePlan` entity:
+        `id`, `name`, `basePrice`, `minAge`, `maxAge`, `active`.
+
+        This is the contract consumed by Quote Calculator Service.
+      responses:
+        "200":
+          description: SSE stream of active plan entities
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/InsurancePlan"
+              examples:
+                seededActivePlans:
+                  summary: One SSE event from the default seed data
+                  value: |
+                    data: {"id":1,"name":"Plan Básico","basePrice":50.0,"minAge":18,"maxAge":65,"active":true}
+        "404":
+          description: No active plans exist in the catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                message: there are not plan active
+                timestamp: "2026-02-14T10:30:00"
+        "405":
+          description: Method not allowed. Only GET is supported.
+
+components:
+  schemas:
+    InsurancePlanResponse:
+      type: object
+      description: Catalog DTO used by GET /api/insurance-catalog
+      required:
+        - namePlan
+        - pricePlan
+        - scopeAge
+        - active
+      properties:
+        namePlan:
+          type: string
+          description: Display name of the insurance plan
+          example: Plan Básico
+        pricePlan:
+          type: number
+          format: double
+          description: Base price of the plan
+          example: 50.0
+        scopeAge:
+          type: string
+          description: Inclusive age range as `minAge-maxAge`
+          pattern: '^\d+-\d+$'
+          example: "18-65"
+        active:
+          type: boolean
+          description: Whether the plan is currently sellable
+          example: true
+
+    InsurancePlan:
+      type: object
+      description: Domain entity used by GET /api/insurance-catalog/active
+      required:
+        - id
+        - name
+        - basePrice
+        - minAge
+        - maxAge
+        - active
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Auto-incremented plan identifier
+          example: 1
+        name:
+          type: string
+          description: Plan name
+          example: Plan Básico
+        basePrice:
+          type: number
+          format: double
+          description: Base premium before risk surcharges
+          example: 50.0
+        minAge:
+          type: integer
+          format: int32
+          description: Inclusive minimum eligible age
+          example: 18
+        maxAge:
+          type: integer
+          format: int32
+          description: Inclusive maximum eligible age
+          example: 65
+        active:
+          type: boolean
+          description: Whether the plan is currently sellable
+          example: true
+
+    ErrorResponse:
+      type: object
+      description: JSON body returned by GlobalExceptionHandler
+      required:
+        - message
+        - timestamp
+      properties:
+        message:
+          type: string
+          description: Error description
+          example: there are not plan active
+        timestamp:
+          type: string
+          format: date-time
+          description: Instant when the error was created
+          example: "2026-02-14T10:30:00"
